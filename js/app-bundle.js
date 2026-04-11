@@ -26660,6 +26660,9 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
   function closeInvoiceEditor() {
     document.getElementById('invoice-editor-modal').classList.add('hidden');
     editorOrder = null;
+    // Force browser repaint to fix layout after backdrop-filter removal
+    var main = document.querySelector('main');
+    if (main) { main.style.display = 'none'; main.offsetHeight; main.style.display = ''; }
   }
 
   function toggleBankSection() {
