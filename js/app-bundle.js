@@ -4599,10 +4599,9 @@
                 sidebar.classList.remove('hidden');
             }
             if (mainContent) {
-                mainContent.classList.remove('w-full');
-                try {
-                    mainContent.style.marginLeft = '';
-                } catch (e) { }
+                mainContent.classList.remove('w-full', 'hidden');
+                mainContent.style.display = '';
+                mainContent.style.marginLeft = '';
             }
 
             // Close mobile menu after navigation
@@ -26658,11 +26657,9 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
   }
 
   function closeInvoiceEditor() {
-    document.getElementById('invoice-editor-modal').classList.add('hidden');
+    var modal = document.getElementById('invoice-editor-modal');
+    if (modal) modal.classList.add('hidden');
     editorOrder = null;
-    // Force browser repaint to fix layout after backdrop-filter removal
-    var main = document.querySelector('main');
-    if (main) { main.style.display = 'none'; main.offsetHeight; main.style.display = ''; }
   }
 
   function toggleBankSection() {
