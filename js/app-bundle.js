@@ -27080,26 +27080,47 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
   /** Refresh saved templates dropdown for the currently selected type. */
   function onQuillTplTypeChange() { refreshQuillSavedList(); }
 
-  function refreshQuillSavedList() {
+  /** Populate the quill-saved-list dropdown from a templates array. */
+  function _applyTemplateList(templates, autoSelectId) {
+    var select = document.getElementById('quill-saved-list');
+    if (!select) return;
+    var count = templates ? templates.length : 0;
+    select.innerHTML = '<option value="">-- Chọn mẫu (' + count + ') --</option>';
+    if (templates) {
+      templates.forEach(function(tpl) {
+        var opt = document.createElement('option');
+        opt.value = tpl.id;
+        opt.textContent = tpl.name + ' (' + new Date(tpl.updatedAt).toLocaleDateString('vi-VN') + ')';
+        select.appendChild(opt);
+      });
+    }
+    if (autoSelectId) select.value = autoSelectId;
+    else if (tplCurrentTplId) select.value = tplCurrentTplId;
+  }
+
+  function refreshQuillSavedList(autoSelectId) {
     var typeEl = document.getElementById('quill-tpl-type');
     var select = document.getElementById('quill-saved-list');
-    if (!typeEl || !select) return;
+    if (!typeEl || !select) {
+      console.warn('[refreshQuillSavedList] elements not found');
+      return;
+    }
     var type = typeEl.value || '';
     select.innerHTML = '<option value="">-- Đang tải... --</option>';
     google.script.run
       .withSuccessHandler(function(resp) {
-        var count = (resp && resp.data) ? resp.data.length : 0;
-        select.innerHTML = '<option value="">-- Chọn mẫu (' + count + ') --</option>';
+        console.log('[refreshQuillSavedList] resp success=' + (resp && resp.success) + ' count=' + (resp && resp.data ? resp.data.length : 0));
         if (resp && resp.success && resp.data) {
-          resp.data.forEach(function(tpl) {
-            var opt = document.createElement('option');
-            opt.value = tpl.id;
-            opt.textContent = tpl.name + ' (' + new Date(tpl.updatedAt).toLocaleDateString('vi-VN') + ')';
-            select.appendChild(opt);
-          });
+          _applyTemplateList(resp.data, autoSelectId);
+        } else {
+          select.innerHTML = '<option value="">-- Lỗi: ' + ((resp && resp.message) || 'không tải được') + ' --</option>';
+          console.error('[refreshQuillSavedList] error:', resp && resp.message);
         }
       })
-      .withFailureHandler(function() { select.innerHTML = '<option value="">-- Lỗi tải danh sách --</option>'; })
+      .withFailureHandler(function(err) {
+        console.error('[refreshQuillSavedList] fail:', err);
+        select.innerHTML = '<option value="">-- Lỗi tải danh sách --</option>';
+      })
       .apiHandler('listNamedTemplates', { templateType: type });
   }
 
@@ -27204,18 +27225,20 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
     if (!name) { showToast('Vui lòng nhập tên mẫu', 'warning'); return; }
     if (!html) { showToast('Nội dung mẫu trống', 'warning'); return; }
     console.log('[saveQuillTemplate] name=' + name + ', type=' + type + ', html.length=' + html.length);
-    var payload = { name: name, templateType: type, html: html };
+    // listType = '' means return all types (same as current filter)
+    var payload = { name: name, templateType: type, html: html, listType: '' };
     if (tplCurrentTplId) payload.id = tplCurrentTplId;
     showToast('Đang lưu mẫu...', 'info');
     try {
       google.script.run
         .withSuccessHandler(function(resp) {
           try {
-            console.log('[saveQuillTemplate] resp:', JSON.stringify(resp));
+            console.log('[saveQuillTemplate] resp success=' + (resp && resp.success) + ' msg=' + (resp && resp.message));
             if (resp && resp.success) {
+              // Combined response: { id, templates: [...] }
               if (resp.data && resp.data.id) tplCurrentTplId = resp.data.id;
               showToast(resp.message || 'Đã lưu mẫu', 'success');
-              refreshQuillSavedList();
+              _applyTemplateList(resp.data && resp.data.templates, tplCurrentTplId);
             } else {
               showToast((resp && resp.message) || 'Lỗi lưu mẫu', 'error');
             }
@@ -27228,7 +27251,7 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
           console.error('[saveQuillTemplate] fail:', e);
           showToast('Lỗi kết nối: ' + e, 'error');
         })
-        .apiHandler('saveNamedTemplate', payload);
+        .apiHandler('saveAndListNamedTemplates', payload);
     } catch(callErr) {
       console.error('[saveQuillTemplate] call error:', callErr);
       showToast('Lỗi gọi API: ' + callErr, 'error');
