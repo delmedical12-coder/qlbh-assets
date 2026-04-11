@@ -10565,6 +10565,12 @@
         const shippingFee = parseFloat(document.getElementById('shipping-fee')?.value) || 0;
         const finalTotal = Math.max(0, cartTotal - discountAmount + shippingFee);
 
+        // Auto-fill paid amount = finalTotal (user can edit afterwards)
+        var paidEl = document.getElementById('paid-amount');
+        if (paidEl && finalTotal > 0) {
+            paidEl.value = finalTotal;
+        }
+
         // Update displays
         const cartTotalEl = document.getElementById('cart-total');
         const cartFinalTotalEl = document.getElementById('cart-final-total');
