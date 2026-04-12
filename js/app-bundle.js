@@ -27310,6 +27310,43 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
   // === END HTML TEMPLATE EDITOR ===
 
   /**
+   * Safely inject HTML into preview container, scoping any <style> tags
+   * so they don't leak to the global page.
+   * @param {HTMLElement} container - target element (must have an id)
+   * @param {string} html - raw HTML (may contain <style> and <body>)
+   */
+  function _injectScopedPreviewHTML(container, html) {
+    if (!container || !html) { if (container) container.innerHTML = ''; return; }
+    var containerId = container.id;
+    var scopeSelector = '#' + containerId;
+    // Extract <style> blocks and scope their selectors to the container
+    var styleBlocks = [];
+    var htmlWithoutStyle = html.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, function(_, cssContent) {
+      // Prefix every selector with the scope, skip @rules like @media, @keyframes
+      var scoped = cssContent.replace(/(^|\})([^{}@]+)\{/g, function(match, brace, selectors) {
+        var scopedSel = selectors.split(',').map(function(sel) {
+          sel = sel.trim();
+          if (!sel) return sel;
+          // Replace body/html/:root with the container scope
+          if (/^(body|html|:root)\b/.test(sel)) {
+            return sel.replace(/^(body|html|:root)/, scopeSelector);
+          }
+          return scopeSelector + ' ' + sel;
+        }).join(', ');
+        return brace + scopedSel + '{';
+      });
+      styleBlocks.push(scoped);
+      return '';
+    });
+    // Extract body content if present
+    var bodyMatch = htmlWithoutStyle.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    var bodyContent = bodyMatch ? bodyMatch[1] : htmlWithoutStyle;
+    // Build final content: scoped styles + body
+    var styleHTML = styleBlocks.length ? '<style>' + styleBlocks.join('\n') + '</style>' : '';
+    container.innerHTML = styleHTML + bodyContent;
+  }
+
+  /**
    * Refresh live preview in editor
    */
   function refreshEditorPreview() {
@@ -27339,7 +27376,7 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
         renderOpts.customHtml = cached.html;
         google.script.run
           .withSuccessHandler(function(res) {
-            if (res && res.success && res.data && res.data.html) container.innerHTML = res.data.html;
+            if (res && res.success && res.data && res.data.html) _injectScopedPreviewHTML(container, res.data.html);
             else container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ Lỗi render: ' + ((res && res.message) || '') + '</div>';
           })
           .withFailureHandler(function(err) { container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ ' + err + '</div>'; })
@@ -27350,7 +27387,7 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
         google.script.run
           .withSuccessHandler(function(res) {
             if (res && res.success && res.data && res.data.html) {
-              container.innerHTML = res.data.html;
+              _injectScopedPreviewHTML(container, res.data.html);
               // Cache the template HTML for next time
               namedTemplateHtmlCache[namedTplId] = { html: res.data.templateHtml, templateType: res.data.templateType };
             } else {
@@ -27379,7 +27416,7 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
       google.script.run
         .withSuccessHandler(function(res) {
           if (res && res.success && res.data && res.data.html) {
-            container.innerHTML = res.data.html;
+            _injectScopedPreviewHTML(container, res.data.html);
           } else {
             container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ Lỗi render: ' + (res && res.message || 'Unknown') + '</div>';
           }
