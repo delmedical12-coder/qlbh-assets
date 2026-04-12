@@ -4549,6 +4549,12 @@
                 }
             }
 
+            // Close any open modals that might interfere with layout
+            ['invoice-editor-modal', 'order-detail-modal', 'product-modal', 'customer-modal'].forEach(function(id) {
+                var m = document.getElementById(id);
+                if (m) m.classList.add('hidden');
+            });
+
             // Auto-expand the nav group containing this page
             expandNavGroupForPage(pageName);
 
@@ -4591,12 +4597,16 @@
             // Update bottom navigation active state (mobile)
             updateBottomNavigation(pageName);
 
-            // Ensure sidebar is always visible
-            const sidebar = document.getElementById('sidebar');
-            const mainContent = document.querySelector('main');
-
-            if (sidebar) {
-                sidebar.classList.remove('hidden');
+            // Ensure layout is correct after page switch
+            var sidebar = document.getElementById('sidebar');
+            var mainContent = document.getElementById('main-content');
+            if (sidebar && window.innerWidth >= 768) {
+                sidebar.classList.remove('hidden', '-translate-x-full');
+                sidebar.style.transform = '';
+                sidebar.style.display = '';
+                sidebar.style.position = '';
+                sidebar.style.zIndex = '';
+                sidebar.style.opacity = '';
             }
             if (mainContent) {
                 mainContent.classList.remove('w-full', 'hidden');
@@ -26660,6 +26670,15 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
     var modal = document.getElementById('invoice-editor-modal');
     if (modal) modal.classList.add('hidden');
     editorOrder = null;
+    // Reset sidebar inline styles that may have been set by mobile menu
+    var sidebar = document.getElementById('sidebar');
+    if (sidebar && window.innerWidth >= 768) {
+      sidebar.style.transform = '';
+      sidebar.style.display = '';
+      sidebar.style.position = '';
+      sidebar.style.zIndex = '';
+      sidebar.style.opacity = '';
+    }
   }
 
   function toggleBankSection() {
