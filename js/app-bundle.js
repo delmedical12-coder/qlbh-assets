@@ -27542,10 +27542,11 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
       style.id = 'editor-print-style';
       style.textContent = `
         @media print {
+          html, body { width: ${bodyWidth} !important; height: auto !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; background: white !important; }
           body > *:not(#editor-print-content) { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }
-          #editor-print-content { display: block !important; visibility: visible !important; position: static !important; }
+          #editor-print-content { display: block !important; visibility: visible !important; position: static !important; width: ${bodyWidth} !important; background: white !important; color: #000 !important; }
+          #editor-print-content * { visibility: visible !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           @page { size: ${pageSize}; margin: 0; }
-          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         #editor-print-content { display: none; }
       `;
