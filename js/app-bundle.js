@@ -27309,6 +27309,219 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
 
   // === END HTML TEMPLATE EDITOR ===
 
+  // ===================================================================
+  // CLIENT-SIDE TEMPLATE RENDERING (replaces GAS previewInvoiceTemplate)
+  // Eliminates network roundtrip for each preview refresh.
+  // ===================================================================
+
+  /** HTML-escape a string for safe template injection. */
+  function _escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /** Format number as Vietnamese money (no symbol). */
+  function _fmtMoneyCS(val) {
+    var n = Number(val) || 0;
+    return n.toLocaleString('vi-VN');
+  }
+
+  /** Convert number to Vietnamese words (simplified — handles up to billions). */
+  function _numToVietnameseCS(num) {
+    if (typeof numberToWords === 'function') return numberToWords(num);
+    var n = Math.round(Number(num) || 0);
+    if (n === 0) return 'Không đồng';
+    return _fmtMoneyCS(n) + ' đồng';
+  }
+
+  /** Build the items table HTML (matches GAS _buildItemsTable). */
+  function _buildItemsTableCS(items, showUnit, showItemDiscount, colHeaders) {
+    items = items || [];
+    var h = colHeaders || {};
+    var hasDiscount = showItemDiscount && items.some(function(i) { return (i.discountAmount || 0) > 0; });
+    var thead = '<tr>'
+      + '<th style="width:32px;text-align:center;">' + _escHtml(h.stt || 'STT') + '</th>'
+      + '<th style="text-align:left;">' + _escHtml(h.tenHang || 'Tên Hàng') + '</th>'
+      + (showUnit ? '<th style="width:48px;text-align:center;">' + _escHtml(h.dvt || 'ĐVT') + '</th>' : '')
+      + '<th style="width:42px;text-align:center;">' + _escHtml(h.sl || 'SL') + '</th>'
+      + '<th style="width:90px;text-align:right;">' + _escHtml(h.donGia || 'Đơn giá') + '</th>'
+      + (hasDiscount ? '<th style="width:72px;text-align:right;">Chiết khấu</th>' : '')
+      + '<th style="width:90px;text-align:right;">' + _escHtml(h.thanhTien || 'Thành tiền') + '</th>'
+      + '</tr>';
+    var tbody = items.map(function(item, idx) {
+      var qty = item.qty || 0;
+      var price = item.price || 0;
+      var discountAmt = item.discountAmount || 0;
+      var lineTotal = item.total || (qty * price - discountAmt);
+      var discountLabel = discountAmt > 0
+        ? (item.discountType === 'percent' ? (item.discountValue || 0) + '%' : _fmtMoneyCS(discountAmt))
+        : '0';
+      return '<tr>'
+        + '<td style="text-align:center;">' + (idx + 1) + '</td>'
+        + '<td>' + _escHtml(item.productName || item.sku || '') + '</td>'
+        + (showUnit ? '<td style="text-align:center;">' + _escHtml(item.unit || '') + '</td>' : '')
+        + '<td style="text-align:center;">' + qty + '</td>'
+        + '<td style="text-align:right;">' + _fmtMoneyCS(price) + '</td>'
+        + (hasDiscount ? '<td style="text-align:right;">' + discountLabel + '</td>' : '')
+        + '<td style="text-align:right;">' + _fmtMoneyCS(lineTotal) + '</td>'
+        + '</tr>';
+    }).join('');
+    return '<table class="items-table" style="width:100%;border-collapse:collapse;">'
+      + '<thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table>';
+  }
+
+  /** Build summary extra HTML (discount, shipping, debt). */
+  function _buildSummaryExtraCS(order, showDiscount, showShipping, showDebt) {
+    var lines = [];
+    if (showDiscount && (order.discountAmount || 0) > 0) {
+      lines.push('<div><strong>Chiết khấu ĐH:</strong> -' + _fmtMoneyCS(order.discountAmount) + ' ₫</div>');
+    }
+    if (showShipping && (order.shippingFee || 0) > 0) {
+      lines.push('<div><strong>Phí vận chuyển:</strong> +' + _fmtMoneyCS(order.shippingFee) + ' ₫</div>');
+    }
+    if (showDebt) {
+      if ((order.paid || 0) > 0) lines.push('<div><strong>Đã thanh toán:</strong> ' + _fmtMoneyCS(order.paid) + ' ₫</div>');
+      if ((order.debt || 0) !== 0) lines.push('<div style="color:#DC2626;"><strong>Còn nợ:</strong> ' + _fmtMoneyCS(order.debt) + ' ₫</div>');
+    }
+    return lines.join('');
+  }
+
+  /** Build placeholder map (matches GAS _buildPlaceholders). */
+  function _buildPlaceholdersCS(order, info, options) {
+    options = options || {};
+    info = info || {};
+    order = order || {};
+    var showUnit = options.showUnit !== false;
+    var showItemDiscount = options.showItemDiscount !== false;
+    var showDebt = options.showDebt === true;
+    var showDiscount = options.showDiscount === true;
+    var showShipping = options.showShipping === true;
+    var showEmployee = options.showEmployee !== false;
+    var title = options.invoiceTitle || 'HÓA ĐƠN BÁN HÀNG';
+    var footerNote = options.footerNote || '';
+    var d = order.date ? new Date(order.date) : new Date();
+    var ngayThangNam = 'Ngày ' + d.getDate() + ' tháng ' + (d.getMonth() + 1) + ' năm ' + d.getFullYear();
+    var colHeaders = {
+      stt: options.colStt || 'STT', tenHang: options.colTenHang || 'Tên Hàng',
+      dvt: options.colDvt || 'ĐVT', sl: options.colSl || 'SL',
+      donGia: options.colDonGia || 'Đơn giá', thanhTien: options.colThanhTien || 'Thành tiền'
+    };
+    var bangSanPham = _buildItemsTableCS(order.items || [], showUnit, showItemDiscount, colHeaders);
+    var tomTatThem = _buildSummaryExtraCS(order, showDiscount, showShipping, showDebt);
+    var diaChi = info.address ? '<strong>Địa chỉ:</strong> ' + _escHtml(info.address) : '';
+    var sdtCT = info.phone ? '<strong>SĐT:</strong> ' + _escHtml(info.phone) : '';
+    var mstCT = info.tax ? 'MST: ' + _escHtml(info.tax) : '';
+    var nvRow = (showEmployee && order.employeeName) ? '<div><strong>Nhân viên:</strong> ' + _escHtml(order.employeeName) + '</div>' : '';
+    var ghiChuDon = order.notes ? '<strong>Ghi chú:</strong> ' + _escHtml(order.notes) : '';
+    return {
+      '{{TEN_CONG_TY}}': _escHtml(info.name),
+      '{{DIA_CHI_CONG_TY}}': diaChi,
+      '{{SDT_CONG_TY}}': sdtCT,
+      '{{MST_CONG_TY}}': mstCT,
+      '{{TIEU_DE}}': _escHtml(title),
+      '{{SO_HOA_DON}}': _escHtml(order.id || ''),
+      '{{TEN_KHACH_HANG}}': _escHtml(order.customerName || 'Khách lẻ'),
+      '{{SDT_KHACH_HANG}}': _escHtml(order.customerPhone || ''),
+      '{{DIA_CHI_KHACH_HANG}}': order.customerAddress ? '<strong>Địa chỉ:</strong> ' + _escHtml(order.customerAddress) : '',
+      '{{TEN_NHAN_VIEN}}': nvRow,
+      '{{SDT_NHAN_VIEN}}': _escHtml(order.employeePhone || ''),
+      '{{BANG_SAN_PHAM}}': bangSanPham,
+      '{{TONG_TIEN}}': _fmtMoneyCS(order.total),
+      '{{TONG_TIEN_CHU}}': _numToVietnameseCS(order.total || 0),
+      '{{TOM_TAT_THEM}}': tomTatThem,
+      '{{GHI_CHU_DON}}': ghiChuDon,
+      '{{NGAY_THANG_NAM}}': ngayThangNam,
+      '{{GHI_CHU_CUOI}}': _escHtml(footerNote),
+      '{{BORDER_COLOR}}': _escHtml(options.borderColor || '#000000'),
+      '{{COL_STT}}': _escHtml(colHeaders.stt),
+      '{{COL_TEN_HANG}}': _escHtml(colHeaders.tenHang),
+      '{{COL_DVT}}': _escHtml(colHeaders.dvt),
+      '{{COL_SL}}': _escHtml(colHeaders.sl),
+      '{{COL_DON_GIA}}': _escHtml(colHeaders.donGia),
+      '{{COL_THANH_TIEN}}': _escHtml(colHeaders.thanhTien),
+      '__ITEMS_DATA__': order.items || [],
+      '{{DA_THANH_TOAN}}': _fmtMoneyCS(order.paid || 0),
+      '{{CON_NO}}': _fmtMoneyCS(order.debt || 0),
+      '{{PHI_SHIP}}': _fmtMoneyCS(order.shippingFee || 0),
+      '{{CHIET_KHAU_DH}}': _fmtMoneyCS(order.discountAmount || 0)
+    };
+  }
+
+  /** Replace placeholders in template HTML (matches GAS _replacePlaceholders). */
+  function _replacePlaceholdersCS(html, map) {
+    var result = String(html || '');
+    // Process {{#ITEMS}}...{{/ITEMS}} loop first
+    var loopStart = result.indexOf('{{#ITEMS}}');
+    var loopEnd = result.indexOf('{{/ITEMS}}');
+    if (loopStart !== -1 && loopEnd !== -1 && map['__ITEMS_DATA__']) {
+      var beforeLoop = result.substring(0, loopStart);
+      var loopTemplate = result.substring(loopStart + 10, loopEnd);
+      var afterLoop = result.substring(loopEnd + 11);
+      var items = map['__ITEMS_DATA__'];
+      var totalQty = 0;
+      var loopRows = items.map(function(item, idx) {
+        var qty = item.qty || 0;
+        var price = item.price || 0;
+        var discountAmt = item.discountAmount || 0;
+        var lineTotal = item.total || (qty * price - discountAmt);
+        totalQty += qty;
+        var itemMap = {
+          '{{STT}}': String(idx + 1),
+          '{{TEN_SP}}': _escHtml(item.productName || item.sku || ''),
+          '{{MA_SP}}': _escHtml(item.sku || ''),
+          '{{DVT}}': _escHtml(item.unit || ''),
+          '{{SL}}': String(qty),
+          '{{DON_GIA}}': _fmtMoneyCS(price),
+          '{{CHIET_KHAU}}': _fmtMoneyCS(discountAmt),
+          '{{THANH_TIEN}}': _fmtMoneyCS(lineTotal),
+          '{{GHI_CHU_SP}}': _escHtml(item.notes || item.description || ''),
+          '{{VAT_RATE}}': String(item.vatRate || 0),
+          '{{TIEN_VAT}}': _fmtMoneyCS(item.vatAmount || 0)
+        };
+        var row = loopTemplate;
+        Object.keys(itemMap).forEach(function(k) {
+          row = row.split(k).join(itemMap[k]);
+        });
+        return row;
+      }).join('');
+      result = beforeLoop + loopRows + afterLoop;
+      result = result.split('{{TONG_SL}}').join(String(totalQty));
+    }
+    // Replace simple placeholders
+    Object.keys(map).forEach(function(k) {
+      if (k === '__ITEMS_DATA__') return;
+      result = result.split(k).join(map[k]);
+    });
+    return result;
+  }
+
+  /** Client-side render: template HTML + order + options → final HTML (no GAS call). */
+  function _renderTemplateClientSide(templateHtml, order, info, options) {
+    var placeholders = _buildPlaceholdersCS(order, info, options);
+    return _replacePlaceholdersCS(templateHtml, placeholders);
+  }
+
+  // Template HTML cache (memory + localStorage) keyed by template ID
+  var _tplHtmlCache = {};
+  function _getTplCacheKey(tplId) { return 'tpl_html_' + tplId; }
+  function _loadTplFromLocalStorage(tplId) {
+    try {
+      var raw = localStorage.getItem(_getTplCacheKey(tplId));
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (obj && obj.html && obj.templateType) return obj;
+    } catch (e) {}
+    return null;
+  }
+  function _saveTplToLocalStorage(tplId, data) {
+    try {
+      localStorage.setItem(_getTplCacheKey(tplId), JSON.stringify({
+        html: data.html, templateType: data.templateType, savedAt: Date.now()
+      }));
+    } catch (e) { /* quota exceeded — ignore */ }
+  }
+
   /**
    * Safely inject HTML into preview container, scoping any <style> tags
    * so they don't leak to the global page.
@@ -27370,32 +27583,33 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
         bankAccountName: options.bankAccountName, transferNote: options.transferNote
       };
 
-      if (cached && cached.html) {
-        // Cache hit: use previewInvoiceTemplate with cached customHtml (1 call, no load needed)
-        container.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">⏳ Đang render...</div>';
-        renderOpts.customHtml = cached.html;
-        google.script.run
-          .withSuccessHandler(function(res) {
-            if (res && res.success && res.data && res.data.html) _injectScopedPreviewHTML(container, res.data.html);
-            else container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ Lỗi render: ' + ((res && res.message) || '') + '</div>';
-          })
-          .withFailureHandler(function(err) { container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ ' + err + '</div>'; })
-          .apiHandler('previewInvoiceTemplate', { order: editorOrder, templateId: cached.templateType || 'a4', options: renderOpts });
+      // Try memory cache, then localStorage cache, then GAS load
+      var tplData = cached || namedTemplateHtmlCache[namedTplId] || _loadTplFromLocalStorage(namedTplId);
+      var _renderFromCache = function(data) {
+        var info = getMergedCompanyInfo();
+        var finalHtml = _renderTemplateClientSide(data.html, editorOrder, info, renderOpts);
+        _injectScopedPreviewHTML(container, finalHtml);
+      };
+      if (tplData && tplData.html) {
+        // Cache hit — render entirely client-side (no GAS call)
+        namedTemplateHtmlCache[namedTplId] = tplData;
+        _renderFromCache(tplData);
       } else {
-        // Cache miss: use combined previewNamedTemplate (1 call = load + render)
+        // Cache miss — load template from GAS once, then render + cache
         container.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">⏳ Đang tải mẫu...</div>';
         google.script.run
           .withSuccessHandler(function(res) {
             if (res && res.success && res.data && res.data.html) {
-              _injectScopedPreviewHTML(container, res.data.html);
-              // Cache the template HTML for next time
-              namedTemplateHtmlCache[namedTplId] = { html: res.data.templateHtml, templateType: res.data.templateType };
+              var data = { html: res.data.html, templateType: res.data.templateType || 'a4' };
+              namedTemplateHtmlCache[namedTplId] = data;
+              _saveTplToLocalStorage(namedTplId, data);
+              _renderFromCache(data);
             } else {
               container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ Lỗi: ' + ((res && res.message) || '') + '</div>';
             }
           })
           .withFailureHandler(function(err) { container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ ' + err + '</div>'; })
-          .apiHandler('previewNamedTemplate', { order: editorOrder, namedTemplateId: namedTplId, options: renderOpts });
+          .apiHandler('loadNamedTemplate', { templateId: namedTplId });
       }
       return;
     }
@@ -27412,39 +27626,44 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
       var gasTemplateId = options.templateId.startsWith('gas-')
         ? options.templateId.replace('gas-', '')
         : options.templateId;
-      container.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">⏳ Đang render từ GAS server...</div>';
-      google.script.run
-        .withSuccessHandler(function(res) {
-          if (res && res.success && res.data && res.data.html) {
-            _injectScopedPreviewHTML(container, res.data.html);
-          } else {
-            container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ Lỗi render: ' + (res && res.message || 'Unknown') + '</div>';
-          }
-        })
-        .withFailureHandler(function(err) {
-          container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ Lỗi GAS: ' + err.toString() + '</div>';
-        })
-        .apiHandler('previewInvoiceTemplate', {
-          order: editorOrder,
-          templateId: gasTemplateId,
-          options: {
-            showUnit: options.showUnit,
-            showVat: options.showVat,
-            showItemDiscount: options.showItemDiscount || false,
-            showSignatures: options.showSignatures,
-            showDebt: options.showDebt,
-            showDiscount: options.showDiscount,
-            showShipping: options.showShipping,
-            showEmployee: options.showEmployee,
-            showBank: options.showBank,
-            invoiceTitle: options.invoiceTitle,
-            footerNote: options.footerNote,
-            bankName: options.bankName,
-            bankAccount: options.bankAccount,
-            bankAccountName: options.bankAccountName,
-            transferNote: options.transferNote
-          }
-        });
+      var gasCacheKey = 'gas-builtin-' + gasTemplateId;
+      var gasRenderOpts = {
+        showUnit: options.showUnit, showVat: options.showVat,
+        showItemDiscount: options.showItemDiscount || false,
+        showSignatures: options.showSignatures, showDebt: options.showDebt,
+        showDiscount: options.showDiscount, showShipping: options.showShipping,
+        showEmployee: options.showEmployee, showBank: options.showBank,
+        invoiceTitle: options.invoiceTitle, footerNote: options.footerNote,
+        bankName: options.bankName, bankAccount: options.bankAccount,
+        bankAccountName: options.bankAccountName, transferNote: options.transferNote
+      };
+      var gasCached = namedTemplateHtmlCache[gasCacheKey] || _loadTplFromLocalStorage(gasCacheKey);
+      var _renderGasFromCache = function(data) {
+        var info = getMergedCompanyInfo();
+        var finalHtml = _renderTemplateClientSide(data.html, editorOrder, info, gasRenderOpts);
+        _injectScopedPreviewHTML(container, finalHtml);
+      };
+      if (gasCached && gasCached.html) {
+        namedTemplateHtmlCache[gasCacheKey] = gasCached;
+        _renderGasFromCache(gasCached);
+      } else {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">⏳ Đang tải mẫu...</div>';
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (res && res.success && res.data && res.data.html) {
+              var data = { html: res.data.html, templateType: gasTemplateId };
+              namedTemplateHtmlCache[gasCacheKey] = data;
+              _saveTplToLocalStorage(gasCacheKey, data);
+              _renderGasFromCache(data);
+            } else {
+              container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ Lỗi tải mẫu: ' + (res && res.message || 'Unknown') + '</div>';
+            }
+          })
+          .withFailureHandler(function(err) {
+            container.innerHTML = '<div style="text-align:center;padding:40px;color:#DC2626;">❌ ' + err.toString() + '</div>';
+          })
+          .apiHandler('getTemplateSource', { templateId: gasTemplateId, forceOriginal: false });
+      }
       return;
     }
 
