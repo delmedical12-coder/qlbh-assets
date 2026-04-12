@@ -4602,12 +4602,8 @@
             var mainContent = document.getElementById('main-content');
             if (sidebar && window.innerWidth >= 768) {
                 sidebar.classList.remove('hidden', '-translate-x-full');
-                sidebar.style.transform = '';
-                sidebar.style.display = '';
-                sidebar.style.position = '';
-                sidebar.style.zIndex = '';
-                sidebar.style.opacity = '';
             }
+            if (typeof _resetSidebarStyles === 'function') _resetSidebarStyles();
             if (mainContent) {
                 mainContent.classList.remove('w-full', 'hidden');
                 mainContent.style.display = '';
@@ -26670,15 +26666,7 @@ ${ret.notes ? '<div style="margin-top:15px;background:#f3f4f6;border-radius:6px;
     var modal = document.getElementById('invoice-editor-modal');
     if (modal) modal.classList.add('hidden');
     editorOrder = null;
-    // Reset sidebar inline styles that may have been set by mobile menu
-    var sidebar = document.getElementById('sidebar');
-    if (sidebar && window.innerWidth >= 768) {
-      sidebar.style.transform = '';
-      sidebar.style.display = '';
-      sidebar.style.position = '';
-      sidebar.style.zIndex = '';
-      sidebar.style.opacity = '';
-    }
+    if (typeof _resetSidebarStyles === 'function') _resetSidebarStyles();
   }
 
   function toggleBankSection() {
